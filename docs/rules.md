@@ -17,12 +17,14 @@ These rules apply to AI coding agents and human contributors.
 
 Until explicitly approved, do not add:
 - Backend services, databases, accounts, authentication, cloud sync, or analytics.
-- Custom AI model training, AI segmentation, inpainting, or generative reconstruction.
+- Custom AI model training, inpainting, or generative reconstruction.
 - Streaming infrastructure, transcoding, recording, or content redistribution.
 - Payment systems, social features, chat, or creator dashboards.
 - Undocumented/private platform APIs or DRM bypasses.
 
 A lightweight, pretrained face-detection approach may be evaluated for the approved local-prototype experiment. Do not add a detection library or model until its need, browser compatibility, bundle/runtime cost, and license have been reviewed. Prefer a small experiment over a broad computer-vision subsystem.
+
+**Approved scope change (2026-10-11):** pretrained *person segmentation* (streamer cutout) is approved as a sampled-frame experiment for the local prototype and the extension spike. It must not run on every frame by default, must be measurable, and must remain optional. Generative reconstruction of obscured gameplay remains banned.
 
 Prefer the smallest change that validates the current task.
 

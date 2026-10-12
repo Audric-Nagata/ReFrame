@@ -4,10 +4,11 @@ This file records verified progress, important decisions, test results, and unre
 
 ## Current project state
 
-- Status: Local prototype (Phase 0) implemented, including the detection feasibility experiment; automated checks pass.
-- Implemented: Vite + React 19 + TypeScript scaffold (renamed **ReFrame**), video stage, crop config with dashed region outline, draggable/resizable overlay, mask, hide/show/reset, free-ratio toggle, MediaPipe-based sampled face detection with manual-accept flow and local log.
-- Developer has manually verified the overlay interaction works with their OBS test clip (report: overlay functioned, but original defaults made it look like a duplicated video — see D-009).
-- Detection accuracy/performance NOT yet verified — needs browser runs on real clips, results to be recorded below via the in-app log.
+- Status: Phase 0 local prototype complete and developer-verified for overlay interaction (one rendering bug still pending the one-line fix). Phase 1 extension spike started — YouTube `youtube.com/watch` only.
+- Product name: **ReFrame**.
+- Implemented: Vite + React 19 + TS local harness (stage, crop config + dashed outline, draggable/resizable overlay, mask, hide/show/reset, free-ratio, MediaPipe detection experiment with log).
+- Approved scope additions: person segmentation as a sampled-frame experiment (local + extension); YouTube-only extension target.
+- Pending immediate: `.overlay` `overflow: hidden` fix (doubled-video symptom), then extension scaffold.
 
 ## Product decisions
 
@@ -36,11 +37,11 @@ This file records verified progress, important decisions, test results, and unre
 **Reason:** Matches architecture.md §2; template conventions reused as-is.  
 **Status:** Accepted.
 
-### D-006 — Crop rendered via duplicate `<video>` element
+### D-006 — Crop rendered via duplicate `<video>` element (SUPERSEDED by D-013)
 **Decision:** Second `<video>` (same src, muted) positioned inside an overflow-hidden overlay; playback mirrored from the main video via play/pause/seeked events plus a 2 s drift check.  
 **Reason:** No canvas readback, no dependency; architecture.md §8.  
-**Known ceiling:** drift possible between the two elements (`// ponytail:` comment in `FacecamOverlay.tsx`). Acceptable for PoC.  
-**Status:** Accepted.
+**Known ceiling:** drift possible between the two elements. Acceptable for PoC.  
+**Status:** Superseded for the extension by D-013 — YouTube's MSE blob source cannot be cloned into a second video element. Kept only in the local harness.
 
 ### D-007 — Free aspect ratio behind a "Customize" setting
 **Decision:** Resize preserves the crop's aspect ratio by default; a "Customize aspect ratio" checkbox enables free-ratio resizing.  
@@ -55,6 +56,27 @@ This file records verified progress, important decisions, test results, and unre
 ### D-009 — Crop-region outline + bottom-left defaults (user-reported bug fix)
 **Decision:** Dashed outline on the stage shows the current crop region (toggleable); default crop moved to bottom-left (typical OBS layout) with the overlay parked top-right.  
 **Reason:** Developer test report (2026-10-11): with identical default rects, the duplicate sat pixel-aligned over the original and read as "two of the same videos stacked"; the crop box also missed a bottom-left facecam entirely. Rendering math was verified correct — this was a defaults/feedback problem, not a crop bug.  
+**Follow-up (honest correction, 2026-10-11):** a second, real rendering bug was then identified — `.overlay` lacked `overflow: hidden`, so the oversized inner video spilled across the whole stage ("doubled video"). The fix is one CSS line, still pending at doc-sync time.  
+**Status:** Accepted.
+
+### D-010 — Extension target: YouTube `youtube.com/watch` only
+**Decision:** The Phase 1 spike targets `youtube.com/watch` exclusively — no Shorts, no embeds, no other pages.  
+**Reason:** Product-owner decision; keeps the time-boxed spike narrow and testable.  
+**Status:** Accepted.
+
+### D-011 — Person segmentation approved as a sampled-frame experiment
+**Decision:** Pretrained person segmentation (streamer cutout) is approved for the local prototype and the extension offscreen document, sampled frames only, optional toggle. Generative reconstruction remains banned.  
+**Reason:** Product-owner approval of a scope change (2026-10-11 request via GPT-assisted exploration); `rules.md` §2 updated with the carve-out.  
+**Status:** Accepted.
+
+### D-012 — Canvas-crop renderer replaces duplicate-video (supersedes D-006 for the extension)
+**Decision:** Extension overlay renders the crop with `drawImage(video, sx,sy,sw,sh, …)` into a canvas on `requestVideoFrameCallback`. Detection/segmentation runs in an extension-origin offscreen document receiving downscaled `ImageBitmap` frames; MediaPipe is never injected into the page (avoids Trusted Types). Overlay DOM is built programmatically in a shadow root (no `innerHTML`).  
+**Reason:** YouTube serves video via MSE blob URL — a second `<video>` cannot share it; canvas blit was proven workable by the developer's pixel-read test (see verification log). Architecture already anticipates a "frame-access check" and "compatibility adapter".  
+**Status:** Accepted.
+
+### D-013 — Extension bundles MediaPipe locally (no CDN, no remote code)
+**Decision:** WASM glue, `.wasm`, and `.tflite` model files are vendored into the extension package and loaded via `chrome.runtime.getURL`. The local ReFrame harness page keeps CDN loading.  
+**Reason:** Chrome Web Store policy forbids remote code execution in extensions; designing bundled from day one avoids a rewrite later.  
 **Status:** Accepted.
 
 ## Technical assumptions to verify
@@ -73,6 +95,20 @@ These are assumptions until tested.
 - `npm run build` (tsc -b + vite build): pass — MediaPipe correctly lazy-loads as a separate chunk (`vision_bundle`, 154 KB gz 46 KB; model/WASM stay on CDN).
 - `npm run dev` smoke test: server starts, `GET /` returns HTTP 200 with app markup (run twice — pre- and post-detection).
 - Fix applied during earlier checks: removed unused `clampSizePx` import by wiring it into `scaleOverlay` (Smaller/Larger now respect min/max bounds).
+
+### 2026-10-12 — Extension scaffold build checks (Windows, Node 24.11.1)
+- `npm run build:ext` (`tsc -p tsconfig.extension.json` + static copy + MediaPipe vendor): pass. Extension loads from `extension/` (manifest, content/overlay/background/offscreen/popup JS, vendored `lib/` with wasm ~38 MB + models ~480 KB).
+- `npm run lint` (oxlint, `extension/` build output ignored): pass, 0 findings.
+- `npm run build` (app harness: tsc -b + vite build): pass.
+- Local harness: `.overlay` now has `overflow: hidden` — the doubled-video bug is fixed in code (browser verification pending).
+- NOT yet verified in a browser: the extension itself (needs developer load-unpacked run) — pixel access re-verification, detection, drag, fullscreen, and the rest of the test matrix are open.
+
+### 2026-10-11 — Extension feasibility findings (developer + GPT-assisted, YouTube watch page)
+Recorded as reported; not yet re-verified by the extension build itself.
+- Found YouTube's active `<video>` element via DevTools; main video 2560×1440, actively playing.
+- Decoded pixels read successfully via canvas `getImageData()`; 25 reads over 5 s, zero errors. (Surprising for cross-origin media — canvas tainting normally blocks this; treat as strong but provisional until re-verified from the extension context — see test matrix.)
+- Loading MediaPipe directly into YouTube's page script context was **blocked by Trusted Types** (expected: youtube.com ships a strict TT/CSP policy). Workaround adopted in D-012: run MediaPipe in an extension-origin offscreen document, never in the page.
+- A standalone local HTML person-segmentation lab was prepared with MediaPipe; superseded by D-011/D-013 — the experiment now lives in ReFrame/extension code, not a throwaway page.
 
 ### 2026-10-11 — Developer manual test (report, pre-detection build)
 - Overlay drag/resize/hide worked on the developer's OBS test clip.

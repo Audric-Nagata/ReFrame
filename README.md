@@ -80,6 +80,22 @@ Everything is keyboard reachable with `Tab` + `Enter`/`Space`. All buttons have 
 - **`npm: command not found`** — install Node.js (LTS) from <https://nodejs.org>, then reopen the terminal.
 - **Video plays but the crop looks wrong** — adjust the X/Y/W/H crop numbers to match where the facecam actually sits in *your* video.
 
+## ReFrame extension (feasibility spike)
+
+Load-unpacked, YouTube `watch` pages only:
+
+```powershell
+npm install
+npm run build:ext        # compiles TS + copies manifest/HTML + vendors MediaPipe (~40 MB, local, no CDN)
+```
+
+1. Open `chrome://extensions`, enable **Developer mode**.
+2. **Load unpacked** → select the `extension/` folder.
+3. Open any `youtube.com/watch` video, click the ReFrame icon, **Enable ReFrame**.
+4. Status/log live in the popup (**Copy log** shares results). On the video: a toolbar appears top-left; detection samples ~1×/s and auto-places the crop on the first confident face — drag it, resize it, mask the original, or try **Segment person** (experimental cutout, updates ~1×/s).
+
+Known spike limits: `/watch` only (no Shorts/embeds), detection needs a visible face, the crop is still a composited-video crop (masked pixels are gone, not restored), and MediaPipe WASM runs from the bundled local files.
+
 ## Docs
 
 Product and scope live in [`prd.md`](prd.md), technical direction in [`architecture.md`](architecture.md), rules in [`rules.md`](rules.md), design tokens in [`design.md`](design.md), progress log in [`memory.md`](memory.md).

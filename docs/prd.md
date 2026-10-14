@@ -10,6 +10,8 @@ ReFrame explores a simple idea: viewers should be able to choose where a streame
 
 The intended experience is to **automatically detect the facecam**, then allow viewers to move, resize, hide, or restore it. Manual selection remains available when automatic detection fails.
 
+The second half of the problem is the **original** facecam location: the tool should estimate and fill the region the baked-in facecam covers — neighboring-frame reuse first, lightweight inpainting only if reuse leaves gaps (approved direction 2026-10-12; details in `update.md`). Every fill is an estimate, never recovered pixels.
+
 ## 2. Problem
 
 In gameplay videos and livestreams, the facecam can cover important game UI such as a minimap, health bar, subtitles, inventory, or other visual information. Viewers usually cannot change the creator's baked-in layout.
@@ -44,9 +46,13 @@ The MVP is a **feasibility prototype**, not a promise of universal compatibility
 
 A key experiment is whether a lightweight computer-vision approach can identify a likely facecam region reliably enough to reduce or eliminate manual selection for the tested videos.
 
+A second experiment covers **background repair**: whether the original facecam region can be filled with a convincing estimate of the hidden gameplay (temporal reuse first, inpainting only if needed), without claiming perfect recovery.
+
 ## 6. MVP scope
 
 ### Phase 0: Local prototype
+
+> **Status: archived 2026-10-12 (D-015).** The localhost harness was retired to `archive/harness/`; the extension is now the sole test surface. The requirements below record what Phase 0 validated before archiving.
 
 - Play a test video in a simple development page.
 - Implement manual rectangular facecam-region selection as a baseline and fallback.
@@ -77,6 +83,17 @@ A key experiment is whether a lightweight computer-vision approach can identify 
 - Record compatibility, detection accuracy, performance, and failure cases.
 - Use a user-triggered activation flow rather than automatically modifying every video page.
 
+### Phase 2: Background-repair prototype (approved 2026-10-12)
+
+- Build a small test harness that processes consecutive frames from short, documented clips.
+- Test **temporal frame reuse** first: fill the original facecam rectangle from past frames (and future frames for prerecorded video), with motion alignment where needed.
+- Compare four conditions on the same clips: original video, basic inpainting, temporal reuse, and reuse + inpainting.
+- Evaluate across moving gameplay, camera motion, scene cuts, and overlays; record coverage gaps and flicker.
+- Evaluate a lightweight inpainting model (LaMa as candidate) for browser feasibility only after temporal-reuse results are known; review conversion, operator support, memory use, and runtime cost first.
+- Benchmark ONNX Runtime Web and WebGPU on lower-spec hardware; expect that CPU fallback or degraded modes may be necessary.
+- Treat ~480p repair at 15–30 updates per second as an experiment target, not a specification; measure latency, utilization, memory, dropped frames, and flicker before making claims.
+- Integrate repair into the extension only after standalone tests are repeatable.
+
 ### MVP acceptance criteria
 
 - A test video plays normally.
@@ -101,7 +118,7 @@ A key experiment is whether a lightweight computer-vision approach can identify 
 - Support for additional browsers and video platforms.
 - User profiles and cloud synchronization.
 - More general repositioning of multiple video elements.
-- More advanced segmentation or reconstruction techniques, subject to feasibility and the limitation that fully obscured gameplay cannot be recovered reliably from a single composited frame.
+- Higher-quality reconstruction than the Phase 2 approaches (for example full video-inpainting models), subject to feasibility and the limitation that fully obscured gameplay cannot be recovered reliably from a single composited frame.
 
 These are hypotheses, not approved MVP requirements.
 
@@ -116,7 +133,7 @@ Do not build these unless the product owner explicitly changes this document:
 - Cloud synchronization or social features.
 - Chat, donations, subscriptions, creator monetization, or moderation tools.
 - Training a custom AI model before evaluating simpler detection approaches.
-- Generative reconstruction of obscured gameplay in the first MVP.
+- Shipping any model or benchmark tool whose license forbids the intended use (ProPainter is offline-benchmark-only).
 - Claims that the extension can extract a facecam from every existing stream.
 - Claims that hidden gameplay pixels can be restored from a single composited frame.
 - Bypassing DRM, access controls, paywalls, or platform restrictions.
@@ -136,6 +153,11 @@ Do not build these unless the product owner explicitly changes this document:
 | Video element is inaccessible or protected | Extension may not access frames | Test real pages and document unsupported cases |
 | Detection consumes too much CPU/GPU | Playback or interaction becomes sluggish | Sample frames, use lightweight models, and measure resource use |
 | Mask covers gameplay underneath | Visual artifact remains | Explain limitation and treat it as a known trade-off |
+| Neighboring frames never show the hidden content (fast motion, cuts, overlays, new content) | Filled region is wrong or incomplete | Compare reuse vs inpainting per scene type; degrade to plain mask |
+| Frame-by-frame inpainting flickers over time | Repair area shimmers, breaks trust | Measure flicker explicitly; use temporal methods only where justified |
+| WebGPU/driver variance across devices | Repair too slow on some hardware | CPU fallback, degraded modes, test on actual low-spec hardware |
+| Model/runtime licenses (e.g. ProPainter non-commercial terms) | Distribution blocker | Offline-benchmark-only for restricted licenses; license review before any addition |
+| Live streams have no future frames | Weaker repair for live content | Restrict reuse to past frames and document the gap |
 | Platform rules or browser permissions limit behavior | Distribution/compatibility risk | Use documented APIs and review applicable terms before release |
 | Separate sources require creator cooperation | Limits future creator-integration adoption | Keep creator integration as a later path |
 
@@ -150,6 +172,9 @@ For the first prototype, success means learning, not growth:
 - How stable is the detected region when the streamer moves or scenes change?
 - How much processing time and CPU/GPU resource use does detection require?
 - How often does the original facecam remain visible or leave artifacts after masking?
+- On the comparison set, does temporal reuse cover enough of the original region to be useful, and where does it fail?
+- Does any fill visibly flicker or look wrong enough to break trust?
+- What repair rate and resource use does the target hardware sustain?
 - Can the extension interact with a real target player through documented browser capabilities?
 - Is the resulting experience useful enough to justify further development?
 

@@ -12,8 +12,11 @@ dist
 dist-ssr
 *.local
 
-# Extension build output (rebuild: npm run build:ext)
-extension/
+# Extension build output (rebuild: npm run build:ext) — anchored so src/extension/ stays tracked
+/extension/
+
+# Archived local harness (see docs/memory.md D-015) — stays local until deliberately restored
+archive/
 
 # Test video stays local — too large and personal for GitHub
 public/sample-video/*.mp4

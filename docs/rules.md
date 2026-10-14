@@ -17,14 +17,16 @@ These rules apply to AI coding agents and human contributors.
 
 Until explicitly approved, do not add:
 - Backend services, databases, accounts, authentication, cloud sync, or analytics.
-- Custom AI model training, inpainting, or generative reconstruction.
+- Custom AI model training, or any presentation of estimated fills as recovered pixels.
 - Streaming infrastructure, transcoding, recording, or content redistribution.
 - Payment systems, social features, chat, or creator dashboards.
 - Undocumented/private platform APIs or DRM bypasses.
 
 A lightweight, pretrained face-detection approach may be evaluated for the approved local-prototype experiment. Do not add a detection library or model until its need, browser compatibility, bundle/runtime cost, and license have been reviewed. Prefer a small experiment over a broad computer-vision subsystem.
 
-**Approved scope change (2026-10-11):** pretrained *person segmentation* (streamer cutout) is approved as a sampled-frame experiment for the local prototype and the extension spike. It must not run on every frame by default, must be measurable, and must remain optional. Generative reconstruction of obscured gameplay remains banned.
+**Approved scope change (2026-10-11):** pretrained *person segmentation* (streamer cutout) is approved as a sampled-frame experiment for the local prototype and the extension spike. It must not run on every frame by default, must be measurable, and must remain optional.
+
+**Approved direction change (2026-10-12, D-014):** *background repair* is the project direction (see `update.md`). Stage 1 — temporal frame reuse (copying neighboring-frame pixels into the original facecam rectangle) — is approved. Stage 2 — lightweight inpainting (LaMa as the named candidate) — is approved as a bounded browser-feasibility experiment only, and every added library or model still requires the need/compatibility/cost/license review above. Stage 3 — ProPainter — is an offline quality benchmark only and must never ship in the extension or any product build (non-commercial license risk). All fills are estimates and must never be described as recovered or restored gameplay. The backend, account, cloud, and custom-training bans above remain unchanged.
 
 Prefer the smallest change that validates the current task.
 
@@ -71,7 +73,7 @@ These are review guidelines, not reasons to create awkward abstractions:
 - Prefer documented browser and platform APIs.
 - Treat page content and video metadata as untrusted input.
 - Do not claim a crop is a true independent source when it is only a crop from a composited video.
-- Do not claim that a mask reconstructs the gameplay behind the facecam.
+- Do not claim that a mask or an estimated fill recovers the gameplay behind the facecam; describe fills as estimates.
 - Do not assume video frames are readable from every page or player; verify access experimentally.
 - Keep any approved face-detection experiment local to the user's device unless the product owner explicitly approves a documented alternative.
 
@@ -96,6 +98,12 @@ For detection-related changes, also test:
 - Resource use and playback responsiveness on the test machine.
 
 Add tests when a test framework exists. Do not introduce a large testing stack without approval. Do not claim accuracy or performance thresholds until they have been measured on a documented test set.
+
+For repair-related changes, also test:
+- All four comparison conditions on the same clips: original, basic inpainting, temporal reuse, reuse + inpainting.
+- Fast motion, scene cuts, overlays, and newly appearing content inside the filled region.
+- Temporal flicker across consecutive filled frames.
+- Resource use on lower-spec hardware, including CPU-only fallback where applicable.
 
 ## 8. Change workflow
 

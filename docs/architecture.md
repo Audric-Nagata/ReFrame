@@ -13,6 +13,8 @@ Path B is not part of the initial implementation.
 
 Automatic facecam detection is now an approved **feasibility experiment** for the local prototype. It is not a promise of robust or universal detection. Manual region selection remains the baseline and fallback. First validate crop/overlay behavior with a known rectangle, then evaluate detection independently.
 
+**New direction (2026-10-12, D-014): background repair.** The project now also aims to fill the original facecam region with an estimated reconstruction: temporal frame reuse first (Stage 1), lightweight inpainting only where reuse leaves gaps (Stage 2, LaMa as candidate, subject to rules.md §2 review), and an offline video-inpainting model (ProPainter) as a quality benchmark only — never shipped. Repair experiments start in a local harness; extension integration happens only after standalone tests are repeatable (`update.md`). Every fill is an estimate; never present fills as recovered pixels.
+
 ## 2. Proposed MVP stack
 
 Keep the stack deliberately small:
@@ -25,6 +27,8 @@ Keep the stack deliberately small:
 - Browser extension APIs only during the extension feasibility phase
 - Local component state for settings; no persistent storage until needed
 - A lightweight pretrained face detector only if needed for the detection experiment and after reviewing browser support, dependency size, runtime cost, and license
+- ONNX Runtime Web and WebGPU as *candidates* for repair inference — added only after the rules.md §2 need/compatibility/cost/license review
+- Canvas-based compositing for the repair layer, reusing the existing draw primitives before considering new rendering dependencies
 
 Avoid introducing a backend framework, database, message queue, cloud storage, custom model training, or streaming infrastructure. Do not select a model or library before establishing the test conditions and confirming it can run locally in the intended environment.
 
@@ -40,6 +44,7 @@ Avoid introducing a backend framework, database, message queue, cloud storage, c
 6. **Mask layer** — optionally covers the original facecam region. This is only a visual cover, not background reconstruction.
 7. **Controls** — toggle visibility, resize, reset layout, and select/correct the crop region.
 8. **Status/help text** — explains detection status, the current prototype mode, and known limitations.
+9. **Repair layer** — fills the original facecam rectangle with an estimate (temporal reuse first, inpainting only if the approved experiments warrant it). Renders as its own layer below the movable overlay and is always labeled an estimate. Deferred to Phase 2.
 
 Keep manual crop selection functional when detection is unavailable, disabled, or unsuccessful.
 
@@ -51,6 +56,7 @@ Keep manual crop selection functional when detection is unavailable, disabled, o
 4. **Frame-access check** — verifies whether frames can be accessed through documented browser capabilities before attempting detection or cropping.
 5. **Overlay renderer** — displays controls and the crop where technically possible.
 6. **Diagnostics** — development-only information about detected video elements and unsupported conditions.
+7. **Repair renderer** *(Phase 2, deferred)* — composites the estimated fill over the original facecam rectangle, below the movable overlay. Integrates only after standalone repair tests are repeatable.
 
 Do not assume a content script can read pixels from every cross-origin, DRM-protected, or platform-controlled video. Verify access experimentally and follow platform/browser rules. Do not work around access restrictions.
 
@@ -75,6 +81,14 @@ Do not assume a content script can read pixels from every cross-origin, DRM-prot
 6. The existing crop/overlay pipeline renders the chosen region and supports drag, resize, hide/show, and reset.
 7. The prototype records local development observations about missed detections, false detections, boundary errors, stability, and resource use. Do not upload frames or add analytics.
 
+### Background repair (Phase 2)
+
+1. Frames around the current playback time are buffered (past frames only for live streams; future frames available for prerecorded video).
+2. A fill source is chosen: aligned neighboring-frame pixels (Stage 1), or an approved inpainting model's output (Stage 2).
+3. The fill is rendered into the original facecam rectangle as its own layer, under the movable overlay.
+4. The viewer's moved/resized crop or cutout renders above it.
+5. When the fill fails or is unavailable, degrade to the existing mask behavior — never fake success.
+
 ### Future creator-side path
 
 1. Creator supplies gameplay and facecam as separate sources.
@@ -91,32 +105,26 @@ If a source video already contains the facecam composited into gameplay, a crop 
 
 Face detection identifies a face, not necessarily the facecam's complete rectangular boundary or the identity of the streamer. In-game characters, portraits, multiple people, camera movement, overlays, scene changes, and a streamer leaving the frame can produce false detections or unstable crop estimates. Detection must therefore remain correctable by the user.
 
+For repair specifically: neighboring frames may not contain the hidden content at all (fast motion, scene cuts, overlays, newly appearing content), so any fill is an approximation. Frame-by-frame processing can flicker temporally. Live streams have no future frames, which weakens reuse for live content.
+
 Do not promise perfect separation for existing YouTube or Twitch streams. The extension spike exists to determine what is possible on specific supported pages.
 
 ## 6. Suggested project structure
 
+> **Updated 2026-10-12 (D-015):** the local harness was archived to `archive/harness/` (gitignored); the extension below is the single product and test surface.
+
 ```text
-facecam-freedom/
-├── docs/
-│   ├── prd.md
-│   ├── architecture.md
-│   ├── rules.md
-│   ├── design.md
-│   ├── tasks.md
-│   └── memory.md
-├── public/
-│   └── sample-video/        # developer-provided test asset; do not commit copyrighted material
+ReFrame/
+├── docs/                      # prd, architecture, rules, design, tasks, memory, update, repair-tests
+├── scripts/
+│   └── vendor-media.mjs       # copies static files + MediaPipe wasm/models into the build
 ├── src/
-│   ├── components/
-│   │   ├── VideoStage.tsx
-│   │   ├── FacecamOverlay.tsx
-│   │   └── Controls.tsx
-│   ├── detection/            # only if the experiment warrants a separate module
-│   ├── types/
-│   │   └── layout.ts
-│   ├── App.tsx
-│   └── main.tsx
-├── package.json
+│   └── extension/             # MV3 source: content, overlay, background, offscreen, popup,
+│                              # repair*, static/ (manifest, popup/offscreen html)
+├── extension/                 # build output of npm run build:ext (gitignored)
+├── tsconfig.extension.json
+├── package.json               # scripts: build:ext, lint
+├── archive/harness/           # retired localhost prototype (kept locally, gitignored)
 └── README.md
 ```
 
@@ -153,6 +161,7 @@ Do not persist these values or introduce user profiles in the MVP. Normalize coo
 - Ensure overlay controls remain usable at different player sizes.
 - Respect the underlying player's controls and playback state.
 - Keep detection local to the device; do not upload video frames.
+- Repair is the heaviest new workload — budget it separately. Experiment target: roughly 480p at 15–30 repair updates per second on supported entry-level GPUs, with the video itself continuing at normal frame rate. Provide degraded modes when hardware cannot keep up, and measure latency, utilization, memory, dropped frames, and flicker before making any claim.
 
 ## 9. Validation plan
 
@@ -165,6 +174,8 @@ Do not persist these values or introduce user profiles in the MVP. Normalize coo
 7. Compare detection-assisted setup with manual selection; keep manual correction available.
 8. Run an extension feasibility spike on a deliberately selected target page and verify frame access through documented browser capabilities.
 9. Record what works, what fails, and why before expanding platform support.
+10. Build a consecutive-frame repair harness and compare the four conditions (original, basic inpainting, temporal reuse, reuse + inpainting) on documented clips covering motion, scene cuts, overlays, and no-facecam segments; record coverage gaps, flicker, and resource use.
+11. Benchmark any repair model/runtime on lower-spec hardware before claiming it is viable in the browser.
 
 Do not define or claim an accuracy threshold until the test set and measurement method are documented. Do not assume local-file results will transfer to a protected or platform-controlled video player.
 
@@ -176,3 +187,7 @@ Do not define or claim an accuracy threshold until the test set and measurement 
 - **Keep manual selection as fallback** if automatic detection misses clips, estimates incorrect boundaries, or cannot access frames.
 - **Explore B** if independent sources are necessary for quality and there is a plausible creator workflow.
 - **Do not build a streaming platform** until user validation justifies the cost and operational complexity.
+- **Proceed with Stage 1 (temporal reuse)** if it covers enough of the original facecam region with acceptable artifacts on representative clips.
+- **Add Stage 2 (LaMa/inpainting)** only where reuse leaves gaps and the browser-feasibility review (rules.md §2) passes.
+- **Stop or degrade repair** if flicker or resource use makes the result worse than the plain mask on target hardware.
+- **Keep ProPainter offline** as a benchmark reference only (license and compute cost); never ship it.

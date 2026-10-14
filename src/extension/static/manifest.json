@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "ReFrame (spike)",
+  "version": "0.1.0",
+  "description": "Feasibility spike: move a YouTube facecam locally. No accounts, no telemetry, no remote code.",
+  "permissions": ["offscreen", "scripting"],
+  "host_permissions": ["https://*.youtube.com/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ReFrame"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.youtube.com/*"],
+      "js": ["repair.js", "repair-history.js", "repair-fill.js", "repair-ui.js", "content.js", "overlay.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

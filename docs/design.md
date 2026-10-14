@@ -8,9 +8,9 @@ The product should feel like a lightweight utility that enhances the video witho
 
 - **Video first:** Minimize chrome around the viewing area.
 - **Direct manipulation:** The facecam should feel draggable and resizable.
-- **Clear status:** Make it obvious when the tool is active, unsupported, or masking the original facecam.
+- **Clear status:** Make it obvious when the tool is active, unsupported, masking the original facecam, or filling it with an estimate.
 - **Reversible actions:** Provide hide/show and reset controls.
-- **No false promises:** Use language such as “crop”, “overlay”, and “cover original region” rather than “separate the facecam” when the source is a single composited video.
+- **No false promises:** Use language such as “crop”, “overlay”, “cover original region”, and “estimated fill” rather than “separate the facecam” or “restore” when the source is a single composited video.
 
 ## 3. Visual direction
 
@@ -81,7 +81,9 @@ Borders should be subtle. Avoid excessive shadows, gradients, glass effects, and
 
 ### Limitation notice
 When masking the original facecam, display a clear notice such as:
-> The original facecam is covered, but gameplay behind it cannot be restored.
+> The original facecam is covered and filled with an estimate — the real gameplay behind it cannot be restored.
+
+When repair (estimated fill) is active, its status must say so — for example “Repair: estimating…” — and must never use words like “restored” or “recovered”.
 
 Do not repeatedly interrupt the viewer after they have acknowledged the notice, but keep the limitation accessible.
 

@@ -62,7 +62,7 @@ chrome.runtime.onMessage.addListener((msg: ReframeBgMessage, _sender, sendRespon
             console.warn('[ReFrame] no content script — injecting via chrome.scripting');
             await chrome.scripting.executeScript({
               target: { tabId },
-              files: ['repair.js', 'repair-history.js', 'repair-fill.js', 'repair-ui.js', 'content.js', 'overlay.js'],
+              files: ['repair.js', 'repair-history.js', 'repair-fill.js', 'repair-ui.js', 'content.js', 'content-detect.js', 'overlay.js'],
             });
             ack = (await chrome.tabs.sendMessage(tabId, { kind: 'activate' })) as typeof ack;
           }

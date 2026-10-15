@@ -63,22 +63,37 @@ function reframeNormRect(r: ReframeRect): ReframeRect {
   };
 }
 
+let reframeSegmentBusy = false;
+let reframeSegmentBusyLogged = false;
+
 async function reframeSendFrame(mode: 'detect' | 'segment') {
   const v = reframeVideo;
   if (!v || v.videoWidth === 0 || v.readyState < 2) return;
-  const maxW = 640;
-  const scale = Math.min(1, maxW / v.videoWidth);
-  const w = Math.round(v.videoWidth * scale);
-  const h = Math.round(v.videoHeight * scale);
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  const ctx = c.getContext('2d');
-  if (!ctx) return;
-  ctx.drawImage(v, 0, 0, w, h);
-  // ponytail: 640px is already ~5× BlazeFace's fixed 128² input — more source pixels cannot help
-  const dataUrl = c.toDataURL('image/jpeg', 0.85);
+  if (mode === 'segment') {
+    // serialize: one segment() in flight per ImageSegmenter instance — checkbox, the 700 ms
+    // sampler and Detect now all fire concurrently
+    if (reframeSegmentBusy) {
+      if (!reframeSegmentBusyLogged) {
+        reframeSegmentBusyLogged = true;
+        reframeLogAdd('Segment: skipped (busy).');
+      }
+      return;
+    }
+    reframeSegmentBusy = true;
+  }
   try {
+    const maxW = 640;
+    const scale = Math.min(1, maxW / v.videoWidth);
+    const w = Math.round(v.videoWidth * scale);
+    const h = Math.round(v.videoHeight * scale);
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(v, 0, 0, w, h);
+    // ponytail: 640px is already ~5× BlazeFace's fixed 128² input — more source pixels cannot help
+    const dataUrl = c.toDataURL('image/jpeg', 0.85);
     const result = (await chrome.runtime.sendMessage({
       kind: 'frame',
       mode,
@@ -88,86 +103,62 @@ async function reframeSendFrame(mode: 'detect' | 'segment') {
       videoW: v.videoWidth,
       videoH: v.videoHeight,
     })) as
-      | { ok: true; type: 'face'; rect: ReframeRect | null; confidence: number; inferenceMs: number }
-      | { ok: true; type: 'segment'; maskDataUrl: string; sentW: number; sentH: number; videoW: number; videoH: number }
+      | {
+          ok: true;
+          type: 'face';
+          rect: ReframeRect | null;
+          confidence: number;
+          inferenceMs: number;
+          diag?: string;
+        }
+      | {
+          ok: true;
+          type: 'segment';
+          maskDataUrl: string;
+          sentW: number;
+          sentH: number;
+          videoW: number;
+          videoH: number;
+          masks?: number;
+          maskIdx?: number;
+          meanAlpha?: number;
+        }
       | { ok: false; error: string };
     if (!result || result.ok === false) {
-      reframeSetStatus('error', result && 'error' in result ? result.error : 'no response');
-      reframeLogAdd(`Frame task failed (${mode}): ${reframeStatusDetail}`);
+      const err = result && 'error' in result ? result.error : 'no response';
+      if (mode === 'segment') {
+        // segment failures are log-only — they must never clobber the face status line
+        // (shared status made a segment error read as "detection failed")
+        reframeLogAdd(`Segment task failed: ${err}`);
+      } else {
+        reframeSetStatus('error', err);
+        reframeLogAdd(`Frame task failed (${mode}): ${reframeStatusDetail}`);
+      }
       return;
     }
     if (result.type === 'face') reframeOnFace(result);
-    else if (result.type === 'segment') void reframeOnSegment(result);
+    else if (result.type === 'segment') {
+      if ((result.masks ?? 1) === 0 || (result.meanAlpha ?? 1) < 0.05) {
+        reframeLogAdd(
+          `Segment: weak/empty mask (masks=${result.masks ?? '?'}, idx=${result.maskIdx ?? '?'}, meanAlpha=${(result.meanAlpha ?? 0).toFixed(2)})`,
+        );
+      }
+      void reframeOnSegment(result);
+    }
   } catch (err) {
-    reframeSetStatus('error', err instanceof Error ? err.message : String(err));
-    reframeLogAdd(`Frame task threw (${mode}): ${reframeStatusDetail}`);
+    const detail = err instanceof Error ? err.message : String(err);
+    if (mode === 'segment') {
+      reframeLogAdd(`Segment task threw: ${detail}`);
+    } else {
+      reframeSetStatus('error', detail);
+      reframeLogAdd(`Frame task failed (${mode}): ${detail}`);
+    }
     console.error('[ReFrame] frame task threw:', err);
-  }
-}
-
-// ponytail: heuristic — cam ≈ 1.7× face height (head+shoulders framing), 16:9 wide,
-// face centered horizontally, slight headroom. Tune when framing tests exist;
-// manual free-resize covers misses. Applied only to the auto-detected box.
-function reframeExpandFace(r: ReframeRect): ReframeRect {
-  const v = reframeVideo;
-  if (!v || !v.videoWidth || !v.videoHeight) return r;
-  const faceH = r.h * v.videoHeight;
-  const camH = faceH * 1.7;
-  const camW = camH * (16 / 9);
-  const cx = (r.x + r.w / 2) * v.videoWidth;
-  return {
-    x: (cx - camW / 2) / v.videoWidth,
-    y: (r.y * v.videoHeight - camH * 0.08) / v.videoHeight,
-    w: camW / v.videoWidth,
-    h: camH / v.videoHeight,
-  };
-}
-
-function reframeOnFace(result: {
-  rect: ReframeRect | null;
-  confidence: number;
-  inferenceMs: number;
-}) {
-  const conf = result.confidence;
-  const detail = `conf ${(conf * 100).toFixed(0)}%, infer ${result.inferenceMs.toFixed(0)} ms`;
-  if (conf < 0.25 || !result.rect || !result.rect.w) {
-    reframeSetStatus('uncertain', `no reliable face (${detail})`);
-    reframeLogAdd(`Detect: miss — ${detail}`);
-    return;
-  }
-  reframeSetStatus('detected', detail);
-  if (!reframeCrop && !reframeUserAdjusted) {
-    reframeCrop = reframeNormRect(reframeExpandFace(result.rect));
-    reframePlaceOverlayOnCrop();
-    reframeLogAdd(
-      `Detect: auto-applied region [${(reframeCrop.x * 100).toFixed(0)},${(reframeCrop.y * 100).toFixed(0)} ${(reframeCrop.w * 100).toFixed(0)}×${(reframeCrop.h * 100).toFixed(0)}%] — ${detail}`,
-    );
-  } else {
-    reframeLogAdd(`Detect: hold (region already set) — ${detail}`);
-  }
-}
-
-async function reframeOnSegment(result: {
-  maskDataUrl: string;
-  sentW: number;
-  sentH: number;
-  videoW: number;
-  videoH: number;
-}) {
-  try {
-    const blob = await (await fetch(result.maskDataUrl)).blob();
-    const bmp = await createImageBitmap(blob);
-    reframeMaskImage?.close();
-    reframeMaskImage = bmp;
-    reframeMaskMeta = {
-      videoW: result.videoW,
-      videoH: result.videoH,
-      sentW: result.sentW,
-      sentH: result.sentH,
-    };
-  } catch (err) {
-    reframeLogAdd(`Segment mask decode failed: ${err instanceof Error ? err.message : err}`);
-    console.error('[ReFrame] mask decode failed:', err);
+  } finally {
+    if (mode === 'segment') {
+      reframeSegmentBusy = false;
+      reframeSegmentBusyLogged = false;
+    }
   }
 }
 
@@ -199,9 +190,9 @@ let reframeSampleTimer = 0;
 
 function reframeStartSampling() {
   if (reframeSampleTimer) return;
+  // detect is manual-only (Detect now) — sampler refreshes segment while it is on
   reframeSampleTimer = window.setInterval(() => {
     if (!reframeEnabled || !reframeVideo || reframeVideo.paused) return;
-    void reframeSendFrame('detect');
     if (reframeSegmentOn) void reframeSendFrame('segment');
   }, REFRAME_SAMPLE_MS);
 }
@@ -218,10 +209,9 @@ function reframeAttach() {
     return false;
   }
   if (!reframeOverlayReady) reframeBuildOverlay();
-  reframeSetStatus('idle', 'waiting for first detection');
+  reframeSetStatus('idle', 'press Detect now');
   reframeLogAdd(`Attached to <video> ${reframeVideo.videoWidth || '?'}×${reframeVideo.videoHeight || '?'}.`);
   console.info(`[ReFrame] attached <video> ${reframeVideo.videoWidth}×${reframeVideo.videoHeight}`);
-  void reframeSendFrame('detect');
   reframeStartSampling();
   return true;
 }
@@ -257,6 +247,8 @@ function reframeDeactivate() {
   reframeStopSampling();
   reframeRepairStop();
   reframeDestroyOverlayUi();
+  reframeOverlayReady = false;
+  reframeVideo = null;
   reframeMaskImage?.close();
   reframeMaskImage = null;
   reframeLogAdd('Deactivated.');

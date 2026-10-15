@@ -21,6 +21,7 @@ npm run lint
 ## Use it
 
 - On-video bar: **Hide facecam**, **Reset**, **Detect now**, **Mark facecam** (drag a box over the cam), **Cover original**, **Segment person**, **Repair (experimental)** + mode select
+- Detection is manual-only: enabling just attaches and shows the menu (`idle — press Detect now`). Nothing runs until you click **Detect now** (or **Reset**); a miss never auto-retries.
 - Status line on the video shows detection + repair state (`repair: 61% cover · 7 ms` or `repair: masked (score 0.31)`)
 - Popup: enable/disable, live log, **Copy log**
 

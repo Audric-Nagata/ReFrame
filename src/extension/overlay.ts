@@ -158,11 +158,17 @@ function reframeCreateOverlayUi() {
   box.className = 'box';
   box.style.display = 'none';
   box.setAttribute('role', 'group');
-  box.setAttribute('aria-label', 'Facecam overlay. Drag to move.');
+  box.setAttribute('aria-label', 'Facecam overlay. Drag to move, drag bottom-right corner to resize.');
   const canvas = document.createElement('canvas');
   box.append(canvas);
   reframeCropBox = box;
   reframeCropCanvas = canvas;
+
+  // Resize handle (bottom-right corner)
+  const resizeHandle = document.createElement('div');
+  resizeHandle.style.cssText = 'position:absolute;right:0;bottom:0;width:14px;height:14px;background:#7C8CFF;border-radius:2px 0 0 0;cursor:nwse-resize;pointer-events:auto;opacity:.9;';
+  box.append(resizeHandle);
+  attachResize(resizeHandle);
 
   shadow.append(style, maskRect, repairCanvas, box, bar, surface);
   reframeRoot = root;
@@ -211,6 +217,43 @@ function attachDrag(box: HTMLDivElement) {
   };
   box.addEventListener('pointerup', end);
   box.addEventListener('pointercancel', end);
+}
+
+function attachResize(handle: HTMLDivElement) {
+  let start: { px: number; py: number; ox: number; oy: number; ow: number; oh: number } | null = null;
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handle.setPointerCapture(e.pointerId);
+    const p = reframeLocalPoint(e);
+    start = { px: p.x, py: p.y, ox: reframeOverlay.x, oy: reframeOverlay.y, ow: reframeOverlay.w, oh: reframeOverlay.h };
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!start) return;
+    const p = reframeLocalPoint(e);
+    const dx = p.x - start.px;
+    const dy = p.y - start.py;
+    let w = Math.max(REFRAME_MIN_PX, start.ow + dx);
+    let h = Math.max(REFRAME_MIN_PX, start.oh + dy);
+    // Clamp to video bounds so resize doesn't push the box off-video
+    let vr: DOMRect | null = null;
+    const v = reframeVideo;
+    if (v) {
+      vr = v.getBoundingClientRect();
+      const maxW = Math.max(REFRAME_MIN_PX, vr.width - start.ox);
+      const maxH = Math.max(REFRAME_MIN_PX, vr.height - start.oy);
+      w = Math.min(w, maxW);
+      h = Math.min(h, maxH);
+    }
+    // Resize: change overlay box size (reframeOverlay) only; keep original crop (reframeCrop)
+    reframeOverlay.w = w;
+    reframeOverlay.h = h;
+    reframeUserAdjusted = true;
+    reframeClampOverlay();
+  });
+  const end = () => { start = null; };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
 }
 
 function reframeRenderLoop() {
